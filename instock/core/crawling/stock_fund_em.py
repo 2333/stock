@@ -9,7 +9,7 @@ import json
 import time
 import math
 import pandas as pd
-import requests
+from instock.core.crawling.request_retry import request_with_retry
 from instock.core.singleton_proxy import proxys
 
 __author__ = 'myh '
@@ -44,7 +44,7 @@ def stock_individual_fund_flow_rank(indicator: str = "5日") -> pd.DataFrame:
         ],
     }
     url = "http://push2.eastmoney.com/api/qt/clist/get"
-    page_size = 50
+    page_size = 500
     page_current = 1
     params = {
         "fid": indicator_map[indicator][0],
@@ -58,7 +58,9 @@ def stock_individual_fund_flow_rank(indicator: str = "5日") -> pd.DataFrame:
         "fs": "m:0+t:6+f:!2,m:0+t:13+f:!2,m:0+t:80+f:!2,m:1+t:2+f:!2,m:1+t:23+f:!2,m:0+t:7+f:!2,m:1+t:3+f:!2",
         "fields": indicator_map[indicator][1],
     }
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
+    if r is None:
+        return pd.DataFrame()
     data_json = r.json()
     data = data_json["data"]["diff"]
     data_count = data_json["data"]["total"]
@@ -66,11 +68,14 @@ def stock_individual_fund_flow_rank(indicator: str = "5日") -> pd.DataFrame:
     while page_count > 1:
         page_current = page_current + 1
         params["pn"] = page_current
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
+        if r is None:
+            page_count = page_count - 1
+            continue
         data_json = r.json()
         _data = data_json["data"]["diff"]
         data.extend(_data)
-        page_count =page_count - 1
+        page_count = page_count - 1
 
     temp_df = pd.DataFrame(data)
     temp_df = temp_df[~temp_df["f2"].isin(["-"])]
@@ -287,7 +292,11 @@ def stock_sector_fund_flow_rank(
         "cb": "jQuery18308357908311220152_1589256588824",
         "_": int(time.time() * 1000),
     }
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params, headers=headers)
+    r = request_with_retry(url, proxys().get_proxies(), params, headers=headers)
+    if r.status_code != 200:
+        print(r.text, r.reason, page_current, "retry again")
+        r = request_with_retry(url, proxys().get_proxies(), params)
+        print("retry result:", r.status_code)
     text_data = r.text
     data_json = json.loads(text_data[text_data.find("{") : -2])
     data = data_json["data"]["diff"]
@@ -297,7 +306,11 @@ def stock_sector_fund_flow_rank(
     while page_count > 1:
         page_current = page_current + 1
         params["pn"] = page_current
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params, headers=headers)
+        r = request_with_retry(url, proxys().get_proxies(), params, headers=headers)
+        if r.status_code != 200:
+            print(r.text, page_count, page_current, "retry again")
+            r = request_with_retry(url, proxys().get_proxies(), params)
+            print("retry result:", r.status_code)
         text_data = r.text
         json_data = json.loads(text_data[text_data.find("{"): -2])
         _data = json_data["data"]["diff"]

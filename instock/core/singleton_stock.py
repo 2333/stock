@@ -6,6 +6,7 @@ import concurrent.futures
 import instock.core.stockfetch as stf
 import instock.core.tablestructure as tbs
 import instock.lib.trade_time as trd
+import instock.core.crawling.stock_hist_em as she
 from instock.lib.singleton_type import singleton_type
 
 __author__ = 'myh '
@@ -36,6 +37,7 @@ class stock_hist_data(metaclass=singleton_type):
         date_start, is_cache = trd.get_trade_hist_interval(stocks[0][0])  # 提高运行效率，只运行一次
         _data = {}
         try:
+            she.code_id_map_em()
             # max_workers是None还是没有给出，将默认为机器cup个数*5
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
                 future_to_stock = {executor.submit(stf.fetch_stock_hist, stock, date_start, is_cache): stock for stock

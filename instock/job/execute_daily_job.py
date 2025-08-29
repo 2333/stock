@@ -38,10 +38,13 @@ def main():
     logging.info("######## 任务执行时间: %s #######" % _start.strftime("%Y-%m-%d %H:%M:%S.%f"))
     # 第1步创建数据库
     bj.main()
+    print("init job done")
     # 第2.1步创建股票基础数据表
     hdj.main()
+    print("basic daily job done")
     # 第2.2步创建综合股票数据表
     sddj.main()
+    print("selection daily job done")
     with concurrent.futures.ThreadPoolExecutor() as executor:
         # # 第3.1步创建股票其它基础数据表
         executor.submit(hdtj.main)
@@ -51,7 +54,7 @@ def main():
         executor.submit(kdj.main)
         # # # # 第5步创建股票策略数据表
         executor.submit(sdj.main)
-
+    print("multithread job done")
     # # # # 第6步创建股票回测
     bdj.main()
 

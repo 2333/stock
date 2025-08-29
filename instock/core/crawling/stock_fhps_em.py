@@ -6,8 +6,8 @@ Desc: 东方财富网-数据中心-年报季报-分红送配
 https://data.eastmoney.com/yjfp/
 """
 import pandas as pd
-import requests
 from tqdm import tqdm
+from instock.core.crawling.request_retry import request_with_retry
 from instock.core.singleton_proxy import proxys
 
 __author__ = 'myh '
@@ -42,13 +42,15 @@ def stock_fhps_em(date: str = "20231231") -> pd.DataFrame:
         "filter": f"""(REPORT_DATE='{"-".join([date[:4], date[4:6], date[6:]])}')""",
     }
 
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
     data_json = r.json()
     total_pages = int(data_json["result"]["pages"])
     big_df = pd.DataFrame()
     for page in tqdm(range(1, total_pages + 1), leave=False):
         params.update({"pageNumber": page})
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
+        if r is None:
+            continue
         data_json = r.json()
         temp_df = pd.DataFrame(data_json["result"]["data"])
         if not temp_df.empty:

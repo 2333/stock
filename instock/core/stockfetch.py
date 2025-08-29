@@ -342,37 +342,122 @@ def fetch_stock_hist(data_base, date_start=None, is_cache=True):
 
 
 # 增加读取股票缓存方法。加快处理速度。多线程解决效率
+#def stock_hist_cache(code, date_start, date_end=None, is_cache=True, adjust=''):
+#    cache_dir = os.path.join(stock_hist_cache_path, date_start[0:6], date_start)
+#    # 如果没有文件夹创建一个。月文件夹和日文件夹。方便删除。
+#    try:
+#        if not os.path.exists(cache_dir):
+#            os.makedirs(cache_dir)
+#    except Exception:
+#        pass
+#    cache_file = os.path.join(cache_dir, "%s%s.gzip.pickle" % (code, adjust))
+#    # 如果缓存存在就直接返回缓存数据。压缩方式。
+#    try:
+#        if os.path.isfile(cache_file):
+#            return pd.read_pickle(cache_file, compression="gzip")
+#        else:
+#            logging.warning(f"stockfetch.stock_hist_cache fetching: {code}")
+#            if date_end is not None:
+#                stock = she.stock_zh_a_hist(symbol=code, period="daily", start_date=date_start, end_date=date_end,
+#                                            adjust=adjust)
+#            else:
+#                stock = she.stock_zh_a_hist(symbol=code, period="daily", start_date=date_start, adjust=adjust)
+#
+#            if stock is None or len(stock.index) == 0:
+#                return None
+#            stock.columns = tuple(tbs.CN_STOCK_HIST_DATA['columns'])
+#            stock = stock.sort_index()  # 将数据按照日期排序下。
+#            try:
+#                if is_cache:
+#                    stock.to_pickle(cache_file, compression="gzip")
+#            except Exception:
+#                pass
+#            # time.sleep(1)
+#            return stock
+#    except Exception as e:
+#        logging.error(f"stockfetch.stock_hist_cache处理异常：{code}代码{e}")
+#    logging.warning(f"stockfetch.stock_hist_cache finished: {code}")
+#    return None
+
+
 def stock_hist_cache(code, date_start, date_end=None, is_cache=True, adjust=''):
+    """
+    获取 A 股日线数据并以 Parquet 缓存。
+    :param code: 股票代码
+    :param date_start: 起始日期(YYYYMMDD)
+    :param date_end: 结束日期(YYYYMMDD) 或 None
+    :param is_cache: 是否写缓存
+    :param adjust: 复权参数：'' 'qfq' 'hfq'
+    """
+    # 全局变量: stock_hist_cache_path / tbs / she 需在外部已定义
     cache_dir = os.path.join(stock_hist_cache_path, date_start[0:6], date_start)
-    # 如果没有文件夹创建一个。月文件夹和日文件夹。方便删除。
     try:
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
+        os.makedirs(cache_dir, exist_ok=True)
     except Exception:
         pass
-    cache_file = os.path.join(cache_dir, "%s%s.gzip.pickle" % (code, adjust))
-    # 如果缓存存在就直接返回缓存数据。压缩方式。
-    try:
-        if os.path.isfile(cache_file):
-            return pd.read_pickle(cache_file, compression="gzip")
-        else:
-            if date_end is not None:
-                stock = she.stock_zh_a_hist(symbol=code, period="daily", start_date=date_start, end_date=date_end,
-                                            adjust=adjust)
-            else:
-                stock = she.stock_zh_a_hist(symbol=code, period="daily", start_date=date_start, adjust=adjust)
 
-            if stock is None or len(stock.index) == 0:
-                return None
-            stock.columns = tuple(tbs.CN_STOCK_HIST_DATA['columns'])
-            stock = stock.sort_index()  # 将数据按照日期排序下。
+    cache_file = os.path.join(cache_dir, f"{code}{adjust}.parquet")
+
+    try:
+        # 如果缓存存在，直接加载
+        if os.path.isfile(cache_file):
             try:
-                if is_cache:
-                    stock.to_pickle(cache_file, compression="gzip")
-            except Exception:
-                pass
-            # time.sleep(1)
-            return stock
+                return pd.read_parquet(cache_file)
+            except Exception as e:
+                logging.warning(f"读取 Parquet 缓存失败，准备重新拉取: {cache_file}, err={e}")
+
+        logging.warning(f"start fecth: {code}")
+        # 调用原数据接口
+        if date_end is not None:
+            stock = she.stock_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=date_start,
+                end_date=date_end,
+                adjust=adjust
+            )
+        else:
+            stock = she.stock_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=date_start,
+                adjust=adjust
+            )
+
+        if stock is None or stock.empty:
+            return None
+
+        # 统一列（你原来的 tbs.CN_STOCK_HIST_DATA['columns']）
+        try:
+            stock.columns = tuple(tbs.CN_STOCK_HIST_DATA['columns'])
+        except Exception:
+            # 如果列数不匹配，建议打印调试
+            logging.warning("列重命名可能失败，请检查 tbs.CN_STOCK_HIST_DATA['columns']")
+
+        # 排序：如果原来索引是日期更好；若 '日期' 在列里，用它排序
+        for date_col in ("日期", "date", "Date"):
+            if date_col in stock.columns:
+                try:
+                    stock[date_col] = pd.to_datetime(stock[date_col])
+                    stock = stock.sort_values(date_col)
+                except Exception:
+                    stock = stock.sort_index()
+                break
+        else:
+            stock = stock.sort_index()
+
+        # 写缓存
+        if is_cache:
+            try:
+                # 默认 snappy 压缩，可指定 compression='zstd'（需 pyarrow 支持）
+                stock.to_parquet(cache_file, index=False, engine="pyarrow", compression="snappy")
+                logging.warning(f"finish & saved: {code} @ {cache_file}")
+            except Exception as e:
+                logging.warning(f"写入 Parquet 缓存失败: {cache_file}, err={e}")
+
+        return stock
+
     except Exception as e:
-        logging.error(f"stockfetch.stock_hist_cache处理异常：{code}代码{e}")
-    return None
+        logging.error(f"stockfetch.stock_hist_cache 处理异常：{code} 代码 {e}")
+        return None
+

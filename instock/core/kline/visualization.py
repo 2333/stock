@@ -165,7 +165,7 @@ def get_plot_kline(code, stock, date, stock_name):
         p_volume.legend.click_policy = "hide"
         p_volume.vbar('index', 0.5, 0, 'volume', color=c_cmap, source=source)
         p_volume.add_tools(crosshair)
-        p_volume.xaxis.major_label_overrides = {i: date for i, date in enumerate(data['date'])}
+        p_volume.xaxis.major_label_overrides = {float(i): str(date) for i, date in enumerate(data['date'])}
         # p_volume.xaxis.major_label_orientation = pi / 4
 
         # 形态复选框
@@ -223,7 +223,7 @@ def get_plot_kline(code, stock, date, stock_name):
             _sql = f"SELECT EXISTS(SELECT 1 FROM `{table_name}` WHERE `code` = '{code}')"
             try:
                 rc = mdb.executeSqlCount(_sql)
-            except Exception as e:
+            except Exception:
                 rc = 0
             if rc == 0:
                 cvalue = "0"
@@ -256,7 +256,7 @@ def get_plot_kline(code, stock, date, stock_name):
                 text=f"""<a href="http://page1.tdx.com.cn:7615/site/pcwebcall_static/bxb/bxb.html?code={code}&color=0" target="_blank">扫雷评级</a>""",
                 width=80)
         div_dfcf_pr = Div(
-            text=f"""<a href="https://www.ljjyy.com/archives/2023/04/100718.html" target="_blank">形态</a>""",
+            text="""<a href="https://www.ljjyy.com/archives/2023/04/100718.html" target="_blank">形态</a>""",
             width=40)
 
         # 组合图

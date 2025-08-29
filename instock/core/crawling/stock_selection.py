@@ -6,10 +6,12 @@ import pandas as pd
 import requests
 import instock.core.tablestructure as tbs
 from instock.core.singleton_proxy import proxys
+from instock.core.crawling.request_retry import request_with_retry
 
 
 __author__ = 'myh '
 __date__ = '2023/5/9 '
+
 
 
 def stock_selection() -> pd.DataFrame:
@@ -35,7 +37,10 @@ def stock_selection() -> pd.DataFrame:
         "client": "WEB"
     }
 
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
+    if r is None:
+        print("[ERROR] 首页数据请求失败，返回空DataFrame")
+        return pd.DataFrame()
     data_json = r.json()
     data = data_json["result"]["data"]
     if not data:
@@ -46,11 +51,15 @@ def stock_selection() -> pd.DataFrame:
     while page_count > 1:
         page_current = page_current + 1
         params["p"] = page_current
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
+        if r is None:
+            print(f"[WARN] 第{page_current}页数据请求失败，已跳过")
+            page_count = page_count - 1
+            continue
         data_json = r.json()
         _data = data_json["result"]["data"]
         data.extend(_data)
-        page_count =page_count - 1
+        page_count = page_count - 1
 
     temp_df = pd.DataFrame(data)
 

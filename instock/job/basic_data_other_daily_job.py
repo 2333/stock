@@ -1,6 +1,7 @@
 #!/usr/local/bin/python3
 # -*- coding: utf-8 -*-
 
+from datetime import datetime
 import logging
 import concurrent.futures
 import os.path
@@ -273,11 +274,18 @@ def stock_imitup_reason_data(date):
         logging.error(f"basic_data_other_daily_job.stock_imitup_reason_data：{e}")
 
 def main():
+    logging.getLogger().setLevel(logging.INFO)
+    logging.info(f"start stock_top_data @ {datetime.now()}")
     runt.run_with_args(save_nph_stock_top_data)
+    logging.info(f"start stock_stock_bonus @ {datetime.now()}")
     runt.run_with_args(save_nph_stock_bonus)
+    logging.info(f"start stock_fund_flow @ {datetime.now()}")
     runt.run_with_args(save_nph_stock_fund_flow_data)
+    logging.info(f"start stock_sector_fund @ {datetime.now()}")
     runt.run_with_args(save_nph_stock_sector_fund_flow_data)
+    logging.info(f"start stock_chip_race_open @ {datetime.now()}")
     runt.run_with_args(stock_chip_race_open_data)
+    logging.info(f"start stock_imitup_reason @ {datetime.now()}")
     runt.run_with_args(stock_imitup_reason_data)
 
 

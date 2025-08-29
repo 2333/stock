@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
+import pandas as pd
 import talib as tl
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 __author__ = 'myh '
 __date__ = '2023/3/10 '
@@ -72,8 +73,10 @@ def check(code_name, data, date=None, threshold=60):
                 recent_lowest_row[1] = _volume
                 recent_lowest_row[2] = _date
 
-    date_diff = datetime.date(datetime.strptime(recent_lowest_row[2], '%Y-%m-%d')) - \
-                datetime.date(datetime.strptime(highest_row[2], '%Y-%m-%d'))
+    # date_diff = datetime.date(datetime.strptime(recent_lowest_row[2], '%Y-%m-%d')) - \
+    #             datetime.date(datetime.strptime(highest_row[2], '%Y-%m-%d'))
+    date_diff = pd.to_datetime(recent_lowest_row[2]).date() - \
+                pd.to_datetime(highest_row[2]).date()
 
     if not (timedelta(days=10) <= date_diff <= timedelta(days=50)):
         return False

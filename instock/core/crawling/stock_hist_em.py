@@ -4,10 +4,9 @@
 Date: 2022/6/19 15:26
 Desc: 东方财富网-行情首页-沪深京 A 股
 """
-import requests
 import pandas as pd
 import math
-from functools import lru_cache
+from instock.core.crawling.request_retry import request_with_retry
 from instock.core.singleton_proxy import proxys
 
 
@@ -19,7 +18,7 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
     :rtype: pandas.DataFrame
     """
     url = "http://82.push2.eastmoney.com/api/qt/clist/get"
-    page_size = 50
+    page_size = 500
     page_current = 1
     params = {
         "pn": page_current,
@@ -34,7 +33,9 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
         "fields": "f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f14,f15,f16,f17,f18,f20,f21,f22,f23,f24,f25,f26,f37,f38,f39,f40,f41,f45,f46,f48,f49,f57,f61,f100,f112,f113,f114,f115,f221",
         "_": "1623833739532",
     }
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
+    if r is None:
+        return pd.DataFrame()
     data_json = r.json()
     data = data_json["data"]["diff"]
     if not data:
@@ -45,11 +46,14 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
     while page_count > 1:
         page_current = page_current + 1
         params["pn"] = page_current
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
+        if r is None:
+            page_count = page_count - 1
+            continue
         data_json = r.json()
         _data = data_json["data"]["diff"]
         data.extend(_data)
-        page_count =page_count - 1
+        page_count = page_count - 1
 
     temp_df = pd.DataFrame(data)
     temp_df.columns = [
@@ -178,8 +182,13 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
 
     return temp_df
 
+from cachetools import TTLCache, cached
+import threading
+code_id_cache = TTLCache(maxsize=1, ttl=300)  # 缓存5分钟
+cache_lock = threading.Lock()
 
-@lru_cache()
+@cached(code_id_cache, lock=cache_lock)
+# @lru_cache()
 def code_id_map_em() -> dict:
     """
     东方财富-股票和市场代码
@@ -187,6 +196,18 @@ def code_id_map_em() -> dict:
     :return: 股票和市场代码
     :rtype: dict
     """
+    import os
+    import pickle
+    from datetime import datetime
+    today_str = datetime.now().strftime('%Y%m%d')
+    cache_file = f"code_id_map_em_{today_str}.pkl"
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'rb') as f:
+                return pickle.load(f)
+        except Exception as e:
+            print(f"读取缓存失败: {e}")
+    # 没有缓存或读取失败，重新请求并保存
     url = "http://80.push2.eastmoney.com/api/qt/clist/get"
     page_size = 50
     page_current = 1
@@ -203,7 +224,7 @@ def code_id_map_em() -> dict:
         "fields": "f12",
         "_": "1623833739532",
     }
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
     data_json = r.json()
     data = data_json["data"]["diff"]
     if not data:
@@ -214,7 +235,11 @@ def code_id_map_em() -> dict:
     while page_count > 1:
         page_current = page_current + 1
         params["pn"] = page_current
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
+        if r.status_code != 200:
+            print(r.text, page_count, page_current, "retry again")
+            r = request_with_retry(url, proxys().get_proxies(), params)
+            print("retry result:", r.status_code)
         data_json = r.json()
         _data = data_json["data"]["diff"]
         data.extend(_data)
@@ -238,7 +263,7 @@ def code_id_map_em() -> dict:
         "fields": "f12",
         "_": "1623833739532",
     }
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
     data_json = r.json()
     data = data_json["data"]["diff"]
     if not data:
@@ -249,7 +274,7 @@ def code_id_map_em() -> dict:
     while page_count > 1:
         page_current = page_current + 1
         params["pn"] = page_current
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
         data_json = r.json()
         _data = data_json["data"]["diff"]
         data.extend(_data)
@@ -272,7 +297,7 @@ def code_id_map_em() -> dict:
         "fields": "f12",
         "_": "1623833739532",
     }
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
     data_json = r.json()
     data = data_json["data"]["diff"]
     if not data:
@@ -283,7 +308,7 @@ def code_id_map_em() -> dict:
     while page_count > 1:
         page_current = page_current + 1
         params["pn"] = page_current
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
         data_json = r.json()
         _data = data_json["data"]["diff"]
         data.extend(_data)
@@ -292,6 +317,12 @@ def code_id_map_em() -> dict:
     temp_df_sz = pd.DataFrame(data)
     temp_df_sz["bj_id"] = 0
     code_id_dict.update(dict(zip(temp_df_sz["f12"], temp_df_sz["bj_id"])))
+    # 保存到本地 pickle
+    try:
+        with open(cache_file, 'wb') as f:
+            pickle.dump(code_id_dict, f)
+    except Exception as e:
+        print(f"写入缓存失败: {e}")
     return code_id_dict
 
 
@@ -333,8 +364,12 @@ def stock_zh_a_hist(
         "end": end_date,
         "_": "1623766962675",
     }
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
     data_json = r.json()
+    if r.status_code != 200:
+        print(r.text, r.reason, "retry again")
+        r = request_with_retry(url, proxys().get_proxies(), params)
+        print("retry result:", r.status_code)
     if not (data_json["data"] and data_json["data"]["klines"]):
         return pd.DataFrame()
     temp_df = pd.DataFrame(
@@ -410,7 +445,7 @@ def stock_zh_a_hist_min_em(
             "secid": f"{code_id_dict[symbol]}.{symbol}",
             "_": "1623766962675",
         }
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
         data_json = r.json()
         temp_df = pd.DataFrame(
             [item.split(",") for item in data_json["data"]["trends"]]
@@ -450,7 +485,7 @@ def stock_zh_a_hist_min_em(
             "end": "20500000",
             "_": "1630930917857",
         }
-        r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+        r = request_with_retry(url, proxys().get_proxies(), params)
         data_json = r.json()
         temp_df = pd.DataFrame(
             [item.split(",") for item in data_json["data"]["klines"]]
@@ -529,7 +564,7 @@ def stock_zh_a_hist_pre_min_em(
         "secid": f"{code_id_dict[symbol]}.{symbol}",
         "_": "1623766962675",
     }
-    r = requests.get(url, proxies = proxys().get_proxies(), params=params)
+    r = request_with_retry(url, proxys().get_proxies(), params)
     data_json = r.json()
     temp_df = pd.DataFrame(
         [item.split(",") for item in data_json["data"]["trends"]]

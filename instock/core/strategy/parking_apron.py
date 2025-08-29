@@ -1,7 +1,8 @@
 #!/usr/local/bin/python
 # -*- coding: utf-8 -*-
 
-from datetime import datetime
+
+import pandas as pd
 from instock.core.strategy import turtle_trade
 
 __author__ = 'myh '
@@ -30,7 +31,8 @@ def check(code_name, data, date=None, threshold=15):
     # 找出涨停日
     for _close, _p_change, _date in zip(data['close'].values, data['p_change'].values, data['date'].values):
         if _p_change > 9.5:
-            if turtle_trade.check_enter(code_name, origin_data, date=datetime.date(datetime.strptime(_date, '%Y-%m-%d')), threshold=threshold):
+            # if turtle_trade.check_enter(code_name, origin_data, date=datetime.date(datetime.strptime(_date, '%Y-%m-%d')), threshold=threshold):
+            if turtle_trade.check_enter(code_name, origin_data, date=pd.to_datetime(_date).date(), threshold=threshold):
                 limitup_row[0] = _close
                 limitup_row[1] = _date
                 if check_internal(data, limitup_row):
