@@ -6,6 +6,7 @@ Desc: 东方财富网-行情首页-沪深京 A 股
 """
 import pandas as pd
 import math
+from loguru import logger
 from instock.core.crawling.request_retry import request_with_retry
 from instock.core.singleton_proxy import proxys
 
@@ -18,7 +19,7 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
     :rtype: pandas.DataFrame
     """
     url = "http://82.push2.eastmoney.com/api/qt/clist/get"
-    page_size = 500
+    page_size = 100
     page_current = 1
     params = {
         "pn": page_current,
@@ -43,6 +44,7 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
 
     data_count = data_json["data"]["total"]
     page_count = math.ceil(data_count/page_size)
+    logger.info(f"总数: {data_count}, 页数: {page_count}")
     while page_count > 1:
         page_current = page_current + 1
         params["pn"] = page_current
@@ -53,6 +55,7 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
         data_json = r.json()
         _data = data_json["data"]["diff"]
         data.extend(_data)
+        logger.info(f"获取第{page_current}页, 剩余页数: {page_count-1}, page_size={len(_data)}, total_size={len(data)}")
         page_count = page_count - 1
 
     temp_df = pd.DataFrame(data)
@@ -206,7 +209,7 @@ def code_id_map_em() -> dict:
             with open(cache_file, 'rb') as f:
                 return pickle.load(f)
         except Exception as e:
-            print(f"读取缓存失败: {e}")
+            logger.error(f"读取缓存失败: {e}")
     # 没有缓存或读取失败，重新请求并保存
     url = "http://80.push2.eastmoney.com/api/qt/clist/get"
     page_size = 50
@@ -237,9 +240,9 @@ def code_id_map_em() -> dict:
         params["pn"] = page_current
         r = request_with_retry(url, proxys().get_proxies(), params)
         if r.status_code != 200:
-            print(r.text, page_count, page_current, "retry again")
+            logger.warning(f"{r.text}, {page_count}, {page_current}, retry again")
             r = request_with_retry(url, proxys().get_proxies(), params)
-            print("retry result:", r.status_code)
+            logger.info(f"retry result: {r.status_code}")
         data_json = r.json()
         _data = data_json["data"]["diff"]
         data.extend(_data)
@@ -322,7 +325,7 @@ def code_id_map_em() -> dict:
         with open(cache_file, 'wb') as f:
             pickle.dump(code_id_dict, f)
     except Exception as e:
-        print(f"写入缓存失败: {e}")
+        logger.error(f"写入缓存失败: {e}")
     return code_id_dict
 
 
@@ -366,10 +369,6 @@ def stock_zh_a_hist(
     }
     r = request_with_retry(url, proxys().get_proxies(), params)
     data_json = r.json()
-    if r.status_code != 200:
-        print(r.text, r.reason, "retry again")
-        r = request_with_retry(url, proxys().get_proxies(), params)
-        print("retry result:", r.status_code)
     if not (data_json["data"] and data_json["data"]["klines"]):
         return pd.DataFrame()
     temp_df = pd.DataFrame(

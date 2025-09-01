@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-import logging
+from loguru import logger
 import pymysql
 import os.path
 import sys
@@ -27,7 +27,7 @@ def create_new_database():
                 db.execute(create_sql)
                 create_new_base_table()
             except Exception as e:
-                logging.error(f"init_job.create_new_database处理异常：{e}")
+                logger.error(f"init_job.create_new_database处理异常：{e}")
 
 
 # 创建基础表。
@@ -53,8 +53,8 @@ def main():
     # 检查，如果执行 select 1 失败，说明数据库不存在，然后创建一个新的数据库。
     try:
         check_database()
-    except Exception as e:
-        logging.error("执行信息：数据库不存在，将创建。")
+    except Exception:
+        logger.error("执行信息：数据库不存在，将创建。")
         # 检查数据库失败，
         create_new_database()
     # 执行数据初始化。

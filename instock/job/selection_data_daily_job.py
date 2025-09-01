@@ -2,18 +2,19 @@
 # -*- coding: utf-8 -*-
 
 
-import logging
-import pandas as pd
+
+from loguru import logger
 import os.path
 import sys
-
-cpath_current = os.path.dirname(os.path.dirname(__file__))
-cpath = os.path.abspath(os.path.join(cpath_current, os.pardir))
-sys.path.append(cpath)
 import instock.lib.run_template as runt
 import instock.core.tablestructure as tbs
 import instock.lib.database as mdb
 import instock.core.stockfetch as stf
+
+
+cpath_current = os.path.dirname(os.path.dirname(__file__))
+cpath = os.path.abspath(os.path.join(cpath_current, os.pardir))
+sys.path.append(cpath)
 
 __author__ = 'myh '
 __date__ = '2023/5/5 '
@@ -40,7 +41,7 @@ def save_nph_stock_selection_data(date, before=True):
 
         mdb.insert_db_from_df(data, table_name, cols_type, False, "`date`,`code`")
     except Exception as e:
-        logging.error(f"selection_data_daily_job.save_nph_stock_selection_data处理异常：{e}")
+        logger.error(f"selection_data_daily_job.save_nph_stock_selection_data处理异常：{e}")
 
 
 def main():

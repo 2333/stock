@@ -445,13 +445,13 @@ def stock_hist_cache(code, date_start, date_end=None, is_cache=True, adjust=''):
                 break
         else:
             stock = stock.sort_index()
-
+        logging.warning(f"finish fetch: {code}")
         # 写缓存
         if is_cache:
             try:
                 # 默认 snappy 压缩，可指定 compression='zstd'（需 pyarrow 支持）
                 stock.to_parquet(cache_file, index=False, engine="pyarrow", compression="snappy")
-                logging.warning(f"finish & saved: {code} @ {cache_file}")
+                logging.warning(f"saved: {code} @ {cache_file}")
             except Exception as e:
                 logging.warning(f"写入 Parquet 缓存失败: {cache_file}, err={e}")
 

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-import logging
+from loguru import logger
 import concurrent.futures
 import pandas as pd
 import os.path
@@ -68,7 +68,7 @@ def process(table, data_all, date, backtest_column):
         mdb.update_db_from_df(data_new, table_name, ('date', 'code'))
 
     except Exception as e:
-        logging.error(f"backtest_data_daily_job.process处理异常：{table}表{e}")
+        logger.error(f"backtest_data_daily_job.process处理异常：{table}表{e}")
 
 
 def run_check(stocks, data_all, date, backtest_column, workers=40):
@@ -85,9 +85,9 @@ def run_check(stocks, data_all, date, backtest_column, workers=40):
                     if _data_ is not None:
                         data[stock] = _data_
                 except Exception as e:
-                    logging.error(f"backtest_data_daily_job.run_check处理异常：{stock[1]}代码{e}")
+                    logger.error(f"backtest_data_daily_job.run_check处理异常：{stock[1]}代码{e}")
     except Exception as e:
-        logging.error(f"backtest_data_daily_job.run_check处理异常：{e}")
+        logger.error(f"backtest_data_daily_job.run_check处理异常：{e}")
     if not data:
         return None
     else:

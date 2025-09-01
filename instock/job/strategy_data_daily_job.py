@@ -1,7 +1,7 @@
 #!/usr/local/bin/python3
 # -*- coding: utf-8 -*-
 
-import logging
+from loguru import logger
 import concurrent.futures
 import pandas as pd
 import os.path
@@ -51,7 +51,7 @@ def prepare(date, strategy):
         mdb.insert_db_from_df(data, table_name, cols_type, False, "`date`,`code`")
 
     except Exception as e:
-        logging.error(f"strategy_data_daily_job.prepare处理异常：{strategy}策略{e}")
+        logger.error(f"strategy_data_daily_job.prepare处理异常：{strategy}策略{e}")
 
 
 def run_check(strategy_fun, table_name, stocks, date, workers=40):
@@ -73,9 +73,9 @@ def run_check(strategy_fun, table_name, stocks, date, workers=40):
                     if future.result():
                         data.append(stock)
                 except Exception as e:
-                    logging.error(f"strategy_data_daily_job.run_check处理异常：{stock[1]}代码{e}策略{table_name}")
+                    logger.error(f"strategy_data_daily_job.run_check处理异常：{stock[1]}代码{e}策略{table_name}")
     except Exception as e:
-        logging.error(f"strategy_data_daily_job.run_check处理异常：{e}策略{table_name}")
+        logger.error(f"strategy_data_daily_job.run_check处理异常：{e}策略{table_name}")
     if not data:
         return None
     else:

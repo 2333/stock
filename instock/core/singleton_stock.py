@@ -18,6 +18,7 @@ class stock_data(metaclass=singleton_type):
     def __init__(self, date):
         try:
             self.data = stf.fetch_stocks(date)
+            logging.info(f"singleton.stock_data加载数据: {date}，共{len(self.data) if self.data is not None else 0}只股票")
         except Exception as e:
             logging.error(f"singleton.stock_data处理异常：{e}")
 
