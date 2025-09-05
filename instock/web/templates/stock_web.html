@@ -10,34 +10,41 @@
 <script src="/static/js/bootstrap-datepicker.min.js"></script>
 <script src="/static/js/bootstrap-datepicker.zh-CN.min.js"></script>
 
-<div style="height: 100%;overflow: hidden;">
-  <div class="table-header" style="width:100%;height:35px;">
-    <div style="display:inline-block;float:left;height:100%;">
-      <div style="display:inline-block;float:left;text-overflow:ellipsis;white-space:nowrap;">
-        {{ web_module_data.name }}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;日期：
-      </div>
-      <div style="display:inline-block;float:right;">
-        <input type="hidden" id="dateid_old">
-        <input type="text" value="{{ date_now }}" id="dateid" class="input-group-sm form-control date-picker">
-      </div>
+<div style="height:100%;display:flex;flex-direction:column;overflow:hidden;">
+  <div class="table-header" style="width:100%;height:38px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;">
+    <div style="display:flex;align-items:center;font-size:14px;">
+      <span style="white-space:nowrap;margin-right:8px;">{{ web_module_data.name }} 日期：</span>
+      <input type="hidden" id="dateid_old">
+      <input type="text" value="{{ date_now }}" id="dateid" class="input-group-sm form-control date-picker" style="width:130px;">
     </div>
-    <div style="display:inline-block;float:right;height:100%;">
-      <input type="button" id="resetFilter" value="重置筛选" style="background-color:#307ECC;height:100%;">
-      <input type="button" id="saveExcel" value="保存Excel" style="background-color:#307ECC;height:100%;">
+    <div style="display:flex;gap:6px;">
+      <input type="button" id="resetFilter" value="重置筛选" class="btn-small">
+      <input type="button" id="saveExcel" value="保存Excel" class="btn-small">
+      <input type="button" id="clearCache" value="清除缓存" class="btn-small btn-danger">
     </div>
   </div>
-  <div id="instock-data" style="width:100%;height:calc(100% - 55px);"></div>
-  <div id="statusBar" style="width:100%;height:20px;"></div>
+
+  <div id="instock-data-wrapper" style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;">
+    <div id="instock-data" style="flex:1 1 auto;min-height:0;"></div>
+    <div id="pager" style="flex:0 0 auto;padding:4px 6px;border-top:1px solid #ddd;background:#fafafa;"></div>
+    <div id="statusBar" style="flex:0 0 auto;height:22px;"></div>
+  </div>
 </div>
 
 <script type="text/javascript">
+  // ================== 可调配置 ==================
+  const DEFAULT_FROZEN_COUNT = 2;
+  const forceTextFields = [];
+  const forceNumberFields = [];
+
   // ================== 全局变量 ==================
   const nameParam = $.getUrlVar('table_name');
   let dateParam = "{{ date_now }}";
-  const colInfos = {% raw web_module_data.column_names %}; // 后端提供列定义数组
+  const colInfos = {% raw web_module_data.column_names %};
   let table = null;
-  let dateFieldsInColumns = []; // 保存包含 date 的列字段名（小写判断）
+  let dateFieldsInColumns = [];
   const LOG_PREFIX = "[InstockTable]";
+  let building = false;
 
   // ================== 日期解析与格式化 ==================
   function parseOADateString(dateStr) {
@@ -48,69 +55,56 @@
     if (isNaN(oa)) return null;
     return new Date((oa - 25569) * 86400 * 1000);
   }
-
   function parseDateFlexible(val) {
     if (val === null || val === undefined || val === '') return null;
-    // 已是标准 yyyy-mm-dd
     if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
-      const d = new Date(val);
-      return isNaN(d.getTime()) ? null : d;
+      const d = new Date(val); return isNaN(d.getTime()) ? null : d;
     }
-    // OADate 字符串
-    if (typeof val === 'string' && val.includes('/OADate(')) {
-      return parseOADateString(val);
-    }
-    // 数字 (可能是 Excel 序号或时间戳)
+    if (typeof val === 'string' && val.includes('/OADate(')) return parseOADateString(val);
     if (typeof val === 'number') {
-      // 判断是否像 Excel OA 日期 (一般 20000~60000 区间)
-      if (val > 10000 && val < 60000) {
-        return new Date((val - 25569) * 86400 * 1000);
-      }
-      // 可能是毫秒级时间戳
+      if (val > 10000 && val < 60000) return new Date((val - 25569) * 86400 * 1000);
       if (val > 100000000000 && val < 5000000000000) {
-        const d = new Date(val);
-        return isNaN(d.getTime()) ? null : d;
+        const d = new Date(val); return isNaN(d.getTime()) ? null : d;
       }
     }
-    // 其它可被 Date 解析的字符串
     if (typeof val === 'string') {
-      const d = new Date(val);
-      return isNaN(d.getTime()) ? null : d;
+      const d = new Date(val); return isNaN(d.getTime()) ? null : d;
     }
     return null;
   }
-
   function formatDateISO(d) {
     if (!(d instanceof Date) || isNaN(d.getTime())) return '';
-    return d.toISOString().slice(0, 10);
+    return d.toISOString().slice(0,10);
   }
-
   function dateValueToDisplay(val) {
     const d = parseDateFlexible(val);
     return d ? formatDateISO(d) : '';
   }
 
-  // ================== 数字/百分比格式化缓存 ==================
-  const NF2 = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const NF4 = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-  const NF0 = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-
+  // ================== 数值判断与格式化 ==================
+  const NF2 = new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const NF4 = new Intl.NumberFormat('zh-CN',{minimumFractionDigits:4,maximumFractionDigits:4});
+  const NF0 = new Intl.NumberFormat('zh-CN',{minimumFractionDigits:0,maximumFractionDigits:0});
+  function isPureNumeric(val) {
+    if (typeof val === 'number') return isFinite(val);
+    if (typeof val === 'string') {
+      const t = val.trim();
+      return /^[+-]?\d+(\.\d+)?$/.test(t);
+    }
+    return false;
+  }
   function formatNumberFlexible(num) {
-    if (num === null || num === undefined || num === '') return '';
-    if (isNaN(num)) return num;
+    if (!isPureNumeric(num)) return num;
     const v = parseFloat(num);
-    if (Math.abs(v) < 0.01) return NF4.format(v);
+    if (Math.abs(v) < 0.01 && v !== 0) return NF4.format(v);
     if (Math.abs(v) >= 10000) return NF0.format(v);
     return NF2.format(v);
   }
-
-  function percentFormatterCached(cell) {
+  function percentFormatter(cell) {
     const val = cell.getValue();
-    if (val === null || val === undefined || val === '') return '';
-    if (isNaN(val)) return val;
+    if (!isPureNumeric(val)) return val ?? '';
     const num = parseFloat(val);
-    const isAlreadyPercent = Math.abs(num) > 1;
-    const pct = isAlreadyPercent ? num : num * 100;
+    const pct = Math.abs(num) > 1 ? num : num * 100;
     let decimal = 2;
     if (Math.abs(pct) < 0.1) decimal = 3;
     else if (Math.abs(pct) >= 100) decimal = 1;
@@ -118,102 +112,128 @@
     const color = num > 0 ? 'color:red;' : (num < 0 ? 'color:green;' : '');
     return `<span style="${color}">${txt}</span>`;
   }
-
-  function numberFormatterCached(cell) {
+  function numberFormatter(cell) {
     const val = cell.getValue();
-    if (val === null || val === undefined || val === '') return '';
-    if (isNaN(val)) return val;
+    if (!isPureNumeric(val)) return val ?? '';
     return formatNumberFlexible(val);
   }
 
-  // ================== 列辅助判断 ==================
-  function shouldFormatAsNumber(fieldName) {
-    const list = ['price','amount','value','ratio','percent','rate','change','volume','turnover','market_cap','pe','pb'];
-    const lower = fieldName.toLowerCase();
-    return list.some(k => lower.includes(k));
-  }
-
-  function shouldFormatAsPercent(fieldName) {
+  // ================== 字段类型判断 ==================
+  function shouldFormatAsPercent(field) {
+    if (forceTextFields.includes(field)) return false;
+    const lower = field.toLowerCase();
     const list = ['ratio','percent','rate','change_ratio'];
-    const lower = fieldName.toLowerCase();
     return list.some(k => lower.includes(k));
   }
-
-  function getColumnWidth(fieldName) {
-    if (fieldName === 'code') return 90;
-    if (fieldName === 'name') return 120;
-    if (fieldName.toLowerCase().includes('date')) return 110;
-    if (fieldName.toLowerCase().includes('ratio') || fieldName.toLowerCase().includes('percent')) return 90;
-    if (fieldName.toLowerCase().includes('price') || fieldName.toLowerCase().includes('amount')) return 100;
+  function shouldFormatAsNumber(field) {
+    if (forceTextFields.includes(field)) return false;
+    if (forceNumberFields.includes(field)) return true;
+    const lower = field.toLowerCase();
+    const list = ['price','amount','value','ratio','percent','rate','change','volume','turnover','market_cap','pe','pb'];
+    return list.some(k => lower.includes(k));
+  }
+  function getColumnWidth(field) {
+    if (field === 'code') return 90;
+    if (field === 'name') return 120;
+    if (field.toLowerCase().includes('date')) return 110;
+    if (field.toLowerCase().includes('ratio') || field.toLowerCase().includes('percent')) return 90;
+    if (field.toLowerCase().includes('price') || field.toLowerCase().includes('amount')) return 100;
     return 110;
   }
 
-  // ================== 列定义构建 ==================
+  // ================== 冻结列存储 ==================
+  function storageKeyFrozen() { return "frozenColumns_" + nameParam; }
+  function storageKeyLayout() { return "tableLayout_" + nameParam; }
+  function getStoredFrozen() {
+    try { return JSON.parse(localStorage.getItem(storageKeyFrozen()) || "[]"); }
+    catch(e){ return []; }
+  }
+  function storeFrozen(list) {
+    try { localStorage.setItem(storageKeyFrozen(), JSON.stringify(list)); }
+    catch(e){ console.warn(LOG_PREFIX, "保存冻结列表失败", e); }
+  }
+  function normalizeFrozenList(currentFields) {
+    let stored = getStoredFrozen().filter(f => currentFields.includes(f));
+    if (stored.length < DEFAULT_FROZEN_COUNT) {
+      currentFields.slice(0, DEFAULT_FROZEN_COUNT).forEach(f=>{
+        if (!stored.includes(f)) stored.push(f);
+      });
+      storeFrozen(stored);
+    }
+    return stored;
+  }
+  function applyFrozenColumns() {
+    if (!table) return;
+    const cols = table.getColumns();
+    const fields = cols.map(c => c.getField());
+    const targetFrozen = normalizeFrozenList(fields);
+    cols.forEach(c=>{
+      const field = c.getField();
+      if (!field) return;
+      const should = targetFrozen.includes(field);
+      const cur = !!c.getDefinition().frozen;
+      if (cur === should) return;
+      if (should) {
+        if (typeof c.freeze === 'function') c.freeze(); else c.updateDefinition({frozen:true});
+      } else {
+        if (typeof c.unfreeze === 'function') c.unfreeze(); else c.updateDefinition({frozen:false});
+      }
+    });
+    console.log(LOG_PREFIX,"冻结列已应用：", targetFrozen);
+  }
+  function toggleColumnFrozen(column) {
+    const field = column.getField();
+    if (!field) return;
+    const allFields = table.getColumns().map(c=>c.getField());
+    let stored = getStoredFrozen().filter(f=>allFields.includes(f));
+    const isFrozen = !!column.getDefinition().frozen;
+    if (isFrozen) {
+      if (typeof column.unfreeze === 'function') column.unfreeze(); else column.updateDefinition({frozen:false});
+      stored = stored.filter(f => f !== field);
+    } else {
+      if (typeof column.freeze === 'function') column.freeze(); else column.updateDefinition({frozen:true});
+      if (!stored.includes(field)) stored.push(field);
+    }
+    storeFrozen(stored);
+    console.log(LOG_PREFIX,"切换冻结:", field, "=>", !isFrozen, "当前：", stored);
+  }
+
+  // ================== 构建列定义 ==================
   function buildColumns(colInfos) {
-    if (!Array.isArray(colInfos) || !colInfos.length) return [];
-
-    let frozenColumns = [];
-    try {
-      frozenColumns = JSON.parse(localStorage.getItem("frozenColumns_" + nameParam) || "[]");
-    } catch(e){
-      console.warn(LOG_PREFIX, "读取冻结列状态失败", e);
-    }
-
+    let frozenStored = getStoredFrozen();
     const isMobile = window.innerWidth < 768;
-    if (isMobile && frozenColumns.length > 2) {
-      frozenColumns = frozenColumns.slice(0,2);
-      localStorage.setItem("frozenColumns_" + nameParam, JSON.stringify(frozenColumns));
+    if (isMobile && frozenStored.length > DEFAULT_FROZEN_COUNT) {
+      frozenStored = frozenStored.slice(0, DEFAULT_FROZEN_COUNT);
+      storeFrozen(frozenStored);
     }
-
-    const cols = colInfos.map((c, idx) => {
-      const headerText = c.caption || c.header || c.title || c.name || c.value || c.field || ('COL_' + idx);
+    const defs = [];
+    colInfos.forEach((c, idx)=>{
+      const title = c.caption || c.header || c.title || c.name || c.value || c.field || ('COL_' + idx);
       const field = c.value || c.field || c.name;
-      if (!field) {
-        console.warn(LOG_PREFIX, "无法解析列字段名：", c);
-        return null;
-      }
-      let isFrozen = idx < 2;
-      if (frozenColumns.length > 0) {
-        isFrozen = frozenColumns.includes(field);
-      }
+      if (!field) { console.warn(LOG_PREFIX,"缺失 field:", c); return; }
+      const lower = field.toLowerCase();
+      let frozenFlag;
+      if (frozenStored.length === 0) frozenFlag = idx < DEFAULT_FROZEN_COUNT;
+      else frozenFlag = frozenStored.includes(field);
 
-      const lowerField = field.toLowerCase();
       const def = {
-        title: headerText,
-          field: field,
-        headerFilter: true,
-        sorter: lowerField.includes('date') ? "string" : (shouldFormatAsNumber(lowerField) ? "number" : "string"),
-        resizable: true,
-        width: getColumnWidth(lowerField),
-        minWidth: 60,
-        frozen: isFrozen,
-        headerContextMenu: [
-          {
-            label: "冻结/解冻此列",
-            action: function(e, column){
-              if (column.isFrozen()) column.unfreeze(); else column.freeze();
-              // 存储
-              try {
-                const stored = JSON.parse(localStorage.getItem("frozenColumns_" + nameParam) || "[]");
-                const f = column.getField();
-                if (column.isFrozen()) {
-                  if (!stored.includes(f)) stored.push(f);
-                } else {
-                  const i = stored.indexOf(f);
-                  if (i>-1) stored.splice(i,1);
-                }
-                localStorage.setItem("frozenColumns_" + nameParam, JSON.stringify(stored));
-              } catch(err){
-                console.warn(LOG_PREFIX, "保存冻结列失败", err);
-              }
-            }
-          }
-        ]
+        title,
+          field,
+        headerFilter:true,
+        sorter: lower.includes('date') ? "string" :
+                (shouldFormatAsNumber(field) || shouldFormatAsPercent(field) ? "number" : "string"),
+        resizable:true,
+        width:getColumnWidth(field),
+        minWidth:60,
+        frozen:frozenFlag,
+        headerContextMenu:[{
+          label:"冻结/解冻此列",
+          action:(e,column)=>toggleColumnFrozen(column)
+        }]
       };
 
-      // 特殊格式化
       if (field === 'code') {
-        def.formatter = function(cell){
+        def.formatter = cell => {
           const value = cell.getValue();
           if (!value) return '';
           const data = cell.getRow().getData();
@@ -222,289 +242,222 @@
             const ds = dateValueToDisplay(data.listing_date);
             if (ds) dt = ds;
           }
-          const name = data.name || '';
-          return `<a href="/instock/data/indicators?code=${value}&date=${dt}&name=${name}" target="_blank">${value}</a>`;
+          const nm = data.name || '';
+          return `<a href="/instock/data/indicators?code=${value}&date=${dt}&name=${nm}" target="_blank">${value}</a>`;
         };
-      } else if (lowerField.includes('date')) {
-        def.formatter = function(cell){
-          return dateValueToDisplay(cell.getValue());
-        };
+      } else if (lower.includes('date')) {
+        def.formatter = cell => dateValueToDisplay(cell.getValue());
         def.headerFilter = "input";
-        def.frozen = false; // 默认不冻结日期列
-      } else if (shouldFormatAsPercent(lowerField)) {
-        def.formatter = percentFormatterCached;
+        def.frozen = false;
+      } else if (shouldFormatAsPercent(field)) {
+        def.formatter = percentFormatter;
         def.sorter = "number";
-      } else if (shouldFormatAsNumber(lowerField)) {
-        def.formatter = numberFormatterCached;
+      } else if (shouldFormatAsNumber(field)) {
+        def.formatter = numberFormatter;
         def.sorter = "number";
       }
-
-      return def;
-    }).filter(Boolean);
-
-    // 重排：把所有包含 date 的列移动到最后 (保持相对顺序)
-    const dateCols = [];
-    const otherCols = [];
-    cols.forEach(col => {
-      if (col.field && col.field.toLowerCase().includes('date')) {
-        col.frozen = false;
-        dateCols.push(col);
-      } else {
-        otherCols.push(col);
-      }
+      defs.push(def);
     });
-    dateFieldsInColumns = dateCols.map(c => c.field);
+
+    const dateCols = [], otherCols = [];
+    defs.forEach(d=>{
+      if (d.field && d.field.toLowerCase().includes('date')) dateCols.push(d); else otherCols.push(d);
+    });
+    dateFieldsInColumns = dateCols.map(d=>d.field);
     return [...otherCols, ...dateCols];
   }
 
-  // ================== 数据获取与预处理 ==================
+  // ================== 数据获取 ==================
   function fetchTableData() {
     return $.getJSON(`/instock/api_data?name=${nameParam}&date=${dateParam}`);
   }
-
   function preprocessData(data) {
     if (!Array.isArray(data)) return [];
-    return data.map(row => {
-      const newRow = { ...row };
-      // 不再过度清空；仅在彻底无法解析时保留原值（formatter 再决定显示）
-      Object.keys(newRow).forEach(k => {
-        if (k.toLowerCase().includes('date')) {
-          // 不直接覆写为 null，交给 formatter 判断；如需标准化，可新增派生字段
-          // 这里选择保留原值，减少信息丢失
-        }
-      });
-      return newRow;
-    });
+    return data.map(r=>({...r}));
   }
 
-  // ================== 状态栏更新 ==================
+  // ================== 状态栏 ==================
   function updateStatusBar() {
     if (!table) return;
     try {
       const total = table.getDataCount();
       const filtered = table.getDataCount("active");
-      let selectedRow = 0;
-      const selectedRows = table.getSelectedRows();
-      if (selectedRows && selectedRows.length > 0) {
-        selectedRow = selectedRows[0].getPosition(true);
-      }
-      $('#statusBar').html(`<span><i class="fa fa-commenting-o"></i>总记录/筛选记录：<b>${total}</b> / <b>${filtered}</b> 条 - 当前位置：第 <b>${selectedRow}</b> 行</span>`);
-    } catch(e) {
-      console.error(LOG_PREFIX, "状态栏更新失败:", e);
-    }
+      const sel = table.getSelectedRows();
+      const pos = sel && sel.length ? sel[0].getPosition(true) : 0;
+      $('#statusBar').html(`<span style="font-size:12px;">总记录/筛选：<b>${total}</b>/<b>${filtered}</b> 当前行：<b>${pos}</b></span>`);
+    } catch(e){ console.warn(LOG_PREFIX,"状态栏更新失败", e); }
   }
 
-  // ================== 日期列可见性控制 ==================
+  // ================== 日期列显隐 ==================
   function hideDateColumnsIfEmpty(data) {
-    if (!table || !Array.isArray(data) || data.length === 0) {
-      dateFieldsInColumns.forEach(f => {
-        const col = table.getColumn(f);
-        if (col) col.hide();
-      });
-      return;
-    }
-
-    dateFieldsInColumns.forEach(field => {
-      const col = table.getColumn(field);
+    if (!table) return;
+    dateFieldsInColumns.forEach(f=>{
+      const col = table.getColumn(f);
       if (!col) return;
-      let hasValue = false;
-      for (let i=0; i<data.length; i++) {
-        const raw = data[i][field];
-        const disp = dateValueToDisplay(raw);
-          if (disp) {
-            hasValue = true;
-            break;
-          }
+      let hasVal = false;
+      if (Array.isArray(data)) {
+        for (let i=0;i<data.length;i++){
+          if (dateValueToDisplay(data[i][f])) { hasVal = true; break; }
+        }
       }
-      if (hasValue) col.show(); else col.hide();
+      if (hasVal) col.show(); else col.hide();
     });
   }
-
-  // ================== 调试辅助：检测日期列缺失 ==================
   function logMissingDateFields(data) {
     if (!data || !data.length) return;
     const first = data[0];
-    dateFieldsInColumns.forEach(f => {
-      if (!(f in first)) {
-        console.warn(
-          LOG_PREFIX,
-          `列定义中包含日期字段 "${f}"，但首行数据没有该属性。可能原因：后端未返回/字段名大小写不一致/序列化丢失/预处理阶段被删除。`
-        );
-      } else {
-        const raw = first[f];
-        if (!raw) {
-          console.info(LOG_PREFIX, `日期字段 "${f}" 首行为空，后续选择日期后如果出现值会自动显示。`);
-        }
-      }
+    dateFieldsInColumns.forEach(f=>{
+      if (!(f in first)) console.warn(LOG_PREFIX,"日期字段列存在但数据缺失:", f);
     });
   }
 
-  // ================== 表格初始化 ==================
+  // ================== 初始化表格 ==================
   function initTable(data) {
+    building = true;
     const columns = buildColumns(colInfos);
+    const pagerElement = document.getElementById('pager');
+    if (!pagerElement || typeof pagerElement.appendChild !== 'function') {
+      console.warn(LOG_PREFIX, "未找到有效分页容器 pager，将使用内置默认 footer。");
+    }
 
-    table = new Tabulator("#instock-data", {
-      data: data,
-      columns: columns,
-      layout: "fitColumns",
-      layoutColumnsOnNewData: false,
-      responsiveLayout: false,
-      pagination: "local",
-      paginationSize: 50,
-      paginationSizeSelector: [50, 100, 200, true],
-      movableColumns: true,
-      height: "100%",
-      selectable: 1,
-      headerSortClickElement: "header",
-      dataFiltered: updateStatusBar,
-      dataSorted: updateStatusBar,
-      rowSelected: updateStatusBar,
-      rowDeselected: updateStatusBar,
-      dataLoaded: updateStatusBar,
-      columnResized: function() {
+    const tableOptions = {
+      data,
+      columns,
+      layout:"fitColumns",
+      layoutColumnsOnNewData:false,
+      pagination:true,
+      paginationMode:"local",
+      paginationSize:50,
+      paginationSizeSelector:[50,100,200,500],
+      movableColumns:true,
+      reactiveData:false,
+      height:"100%",
+      selectable:1,
+      headerSortClickElement:"header",
+      dataFiltered:updateStatusBar,
+      dataSorted:updateStatusBar,
+      rowSelected:updateStatusBar,
+      rowDeselected:updateStatusBar,
+      dataLoaded:updateStatusBar,
+      columnResized:()=>{
         try {
-          localStorage.setItem("tableLayout_" + nameParam, JSON.stringify(table.getColumnLayout()));
-        } catch(e) {
-          console.warn(LOG_PREFIX, "保存列布局失败", e);
-        }
+          localStorage.setItem(storageKeyLayout(), JSON.stringify(table.getColumnLayout()));
+        } catch(e){ console.warn(LOG_PREFIX,"保存布局失败", e); }
       },
-      tableBuilt: function() {
-        console.log(LOG_PREFIX, "表格构建完成");
-        // 恢复布局
+      tableBuilt:()=>{
+        console.log(LOG_PREFIX,"表格构建完成");
         try {
-          const savedLayout = localStorage.getItem("tableLayout_" + nameParam);
-          if (savedLayout) {
-            table.setColumnLayout(JSON.parse(savedLayout));
-          }
-        } catch(e) {
-          console.warn(LOG_PREFIX, "恢复列布局失败", e);
-        }
-        updateStatusBar();
-        hideDateColumnsIfEmpty(data);
+          const saved = localStorage.getItem(storageKeyLayout());
+          if (saved) table.setColumnLayout(JSON.parse(saved));
+        } catch(e){ console.warn(LOG_PREFIX,"恢复列布局失败", e); }
+        applyFrozenColumns();
+          hideDateColumnsIfEmpty(data);
         logMissingDateFields(data);
+        updateStatusBar();
+        building = false;
       }
-    });
+    };
+
+    // 仅当 pagerElement 存在且是 DOM，才传入
+    if (pagerElement && typeof pagerElement.appendChild === 'function') {
+      tableOptions.paginationElement = pagerElement;
+    }
+
+    table = new Tabulator("#instock-data", tableOptions);
 
     // 行右键菜单
-    table.on("rowContext", function(e, row){
+    table.on("rowContext", (e,row)=>{
       e.preventDefault();
       const menu = document.createElement("div");
       menu.className = "custom-context-menu";
-      Object.assign(menu.style, {
-        position: "absolute",
-        left: e.pageX + "px",
-        top: e.pageY + "px",
-        background: "#fff",
-        border: "1px solid #ddd",
-        boxShadow: "2px 2px 10px rgba(0,0,0,0.15)",
-        padding: "5px 0",
-        zIndex: 1000,
-        borderRadius: "4px",
-        minWidth: "140px",
-        fontSize: "13px"
+      Object.assign(menu.style,{
+        position:"absolute",left:e.pageX+"px",top:e.pageY+"px",
+        background:"#fff",border:"1px solid #ddd",
+        boxShadow:"2px 2px 8px rgba(0,0,0,0.15)",padding:"4px 0",
+        zIndex:1000,borderRadius:"4px",minWidth:"140px",fontSize:"13px"
       });
-
-      function addItem(label, handler){
-        const div = document.createElement("div");
-        div.textContent = label;
-        div.style.padding = "5px 15px";
-        div.style.cursor = "pointer";
-        div.addEventListener("mouseover", ()=> div.style.background="#f5f5f5");
-        div.addEventListener("mouseout", ()=> div.style.background="");
-        div.addEventListener("click", () => {
-          handler();
-          if (menu.parentNode) menu.parentNode.removeChild(menu);
-        });
+      function addItem(label,fn){
+        const div=document.createElement("div");
+        div.textContent=label;
+        div.style.cssText="padding:5px 14px;cursor:pointer;";
+        div.onmouseover=()=>div.style.background="#f5f5f5";
+        div.onmouseout=()=>div.style.background="";
+        div.onclick=()=>{ fn(); close(); };
         menu.appendChild(div);
       }
-
-      addItem("复制行数据", () => {
-        const rd = row.getData();
-        const text = Object.entries(rd).map(([k,v]) => {
+      addItem("复制行数据", ()=>{
+        const d=row.getData();
+        const text = Object.entries(d).map(([k,v])=>{
           if (k.toLowerCase().includes('date')) return `${k}: ${dateValueToDisplay(v)}`;
-          if (shouldFormatAsNumber(k) && v !== null && v !== undefined && v !== '') {
-            return `${k}: ${formatNumberFlexible(v)}`;
-          }
+          if (shouldFormatAsNumber(k) && isPureNumeric(v)) return `${k}: ${formatNumberFlexible(v)}`;
           return `${k}: ${v}`;
         }).join("\n");
-        navigator.clipboard.writeText(text).then(()=> {
-          console.log(LOG_PREFIX, "行数据已复制");
-        }).catch(err => console.error(LOG_PREFIX, "复制失败", err));
+        navigator.clipboard.writeText(text).then(()=> console.log(LOG_PREFIX,"行已复制"));
       });
-
       document.body.appendChild(menu);
-      const close = function(){
-        if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
-        document.removeEventListener("click", close);
-      };
-      setTimeout(()=> document.addEventListener("click", close), 0);
+      function close(){
+        if(menu && menu.parentNode) menu.parentNode.removeChild(menu);
+        document.removeEventListener("click",close);
+      }
+      setTimeout(()=>document.addEventListener("click",close),0);
     });
   }
 
-  // ================== 数据加载流程 ==================
+  // ================== 加载数据 ==================
   function loadInitialData() {
-    fetchTableData().then(raw => {
-      if (Array.isArray(raw) && raw.length) {
-        console.log(LOG_PREFIX, "数据示例:", raw[0]);
-      } else {
-        console.warn(LOG_PREFIX, "返回数据为空或不是数组");
-      }
+    fetchTableData().then(raw=>{
+      if (Array.isArray(raw) && raw.length) console.log(LOG_PREFIX,"示例数据:", raw[0]);
+      else console.warn(LOG_PREFIX,"数据为空或非数组");
       const data = preprocessData(raw);
       initTable(data);
-    }).catch(err => {
-      console.error(LOG_PREFIX, "首次加载数据失败:", err);
-      $('#instock-data').html('<div class="alert alert-danger">加载数据失败，请稍后再试</div>');
+    }).catch(err=>{
+      console.error(LOG_PREFIX,"加载失败",err);
+      $('#instock-data').html('<div class="alert alert-danger">加载数据失败</div>');
     });
   }
-
   function reloadDataAfterDateChange() {
-    fetchTableData().then(raw => {
+    fetchTableData().then(raw=>{
       const data = preprocessData(raw);
       if (table) {
-        table.replaceData(data).then(() => {
+        table.replaceData(data).then(()=>{
           hideDateColumnsIfEmpty(data);
           logMissingDateFields(data);
           updateStatusBar();
         });
       }
-    }).catch(err => {
-      console.error(LOG_PREFIX, "日期切换后加载数据失败:", err);
-    });
+    }).catch(err=> console.error(LOG_PREFIX,"日期切换加载失败",err));
   }
 
-  // ================== 初始化 ==================
+  // ================== 事件 ==================
   $(document).ready(function(){
     if (typeof Tabulator === 'undefined') {
-      console.error(LOG_PREFIX, "Tabulator 未加载");
-      $('#instock-data').html('<div class="alert alert-danger">表格组件加载失败，请刷新</div>');
+      console.error(LOG_PREFIX,"Tabulator 未加载");
+      $('#instock-data').html('<div class="alert alert-danger">表格组件加载失败</div>');
       return;
     }
-    console.log(LOG_PREFIX, "Tabulator 版本:", Tabulator.version);
+    console.log(LOG_PREFIX,"Tabulator 版本:", Tabulator.version);
 
     $('.date-picker').datepicker({
-      language: 'zh-CN',
-      format: "yyyy-mm-dd",
-      autoclose: true,
-      todayHighlight: true
+      language:'zh-CN',format:"yyyy-mm-dd",autoclose:true,todayHighlight:true
     }).on('changeDate', function(){
       const newDate = $('#dateid').val();
       if (newDate && dateParam !== newDate) {
-        const oldDate = $('#dateid_old').val();
-        if (oldDate === newDate) return;
+        const old = $('#dateid_old').val();
+        if (old === newDate) return;
         dateParam = newDate;
         $('#dateid_old').val(newDate);
         reloadDataAfterDateChange();
       }
     });
 
-    // 按钮事件
-    $('#saveExcel').on('click', function(){
-      if (table) {
-        table.download("xlsx", nameParam + '_' + dateParam + ".xlsx", { sheetName: nameParam });
-      }
+    $('#saveExcel').on('click', ()=>{
+      if (table) table.download("xlsx", `${nameParam}_${dateParam}.xlsx`, {sheetName:nameParam});
     });
-    $('#resetFilter').on('click', function(){
-      if (table) table.clearHeaderFilter();
+    $('#resetFilter').on('click', ()=>{ if (table) table.clearHeaderFilter(); });
+    $('#clearCache').on('click', ()=>{
+      localStorage.removeItem(storageKeyFrozen());
+      localStorage.removeItem(storageKeyLayout());
+      alert('已清除冻结与布局缓存，刷新后生效');
     });
 
     loadInitialData();
@@ -512,60 +465,48 @@
 </script>
 
 <style>
-  #instock-data {
-    width: 100%;
-    height: calc(100% - 55px);
-    overflow: hidden;
+  .btn-small {
+    background:#307ECC;
+    border:1px solid #286bb5;
+    color:#fff;
+    padding:4px 10px;
+    font-size:12px;
+    border-radius:3px;
+    cursor:pointer;
   }
+  .btn-small:hover { background:#2b6fb9; }
+  .btn-danger { background:#c94b45; border-color:#b23732; }
+  .btn-danger:hover { background:#b23732; }
+
+  #instock-data, .tabulator { width:100%; height:100%; }
+
   .tabulator {
-    width: 100%;
-    height: 100%;
-    font-size: 14px;
-    border: 1px solid #ddd;
+    font-size:14px;
+    border:1px solid #d0d0d0;
   }
   .tabulator-header {
-    font-weight: bold;
-    background-color: #f8f9fa;
-    border-bottom: 2px solid #dee2e6;
+    font-weight:bold;
+    background:#f5f7fa;
+    border-bottom:1px solid #d9d9d9;
   }
   .tabulator-col-title {
-    font-weight: bold;
+    font-weight:bold;
     color:#333;
   }
-  .tabulator-row {
-    border-bottom: 1px solid #eee;
-  }
-  .tabulator-row:hover {
-    background-color: #f5f5f5;
-  }
-  .tabulator-row.tabulator-selected {
-    background-color: #e6f7ff;
-  }
+  .tabulator-row { border-bottom:1px solid #eee; }
+  .tabulator-row:hover { background:#f2f8ff; }
+  .tabulator-row.tabulator-selected { background:#e6f7ff; }
+
   .tabulator-cell {
-    padding: 6px 8px;
-    border-right: 1px solid #eee;
-    white-space: normal;
-    overflow: visible;
+    padding:6px 8px;
+    border-right:1px solid #eee;
+    white-space:normal;
+    overflow:visible;
+    line-height:1.35;
   }
   .tabulator-cell a { color:#307ECC; text-decoration:none; }
   .tabulator-cell a:hover { text-decoration:underline; }
 
-  #statusBar {
-    padding: 3px 10px;
-    background-color: #f8f9fa;
-    border-top: 1px solid #dee2e6;
-    font-size: 12px;
-  }
-
-  /* 冻结列样式轻量化 */
-  .tabulator-frozen { background-color:#f0f8ff; }
-  .tabulator-frozen-left { box-shadow:1px 0 0 #ddd; }
-  .tabulator-frozen-right { box-shadow:-1px 0 0 #ddd; }
-
-  /* 右键菜单 */
-  .custom-context-menu { border-radius:4px; }
-
-  /* 数字类右对齐 */
   .tabulator-cell[tabulator-field*="price"],
   .tabulator-cell[tabulator-field*="amount"],
   .tabulator-cell[tabulator-field*="value"],
@@ -578,7 +519,26 @@
   .tabulator-cell[tabulator-field*="market_cap"],
   .tabulator-cell[tabulator-field*="pe"],
   .tabulator-cell[tabulator-field*="pb"] {
-    text-align: right;
+    text-align:right;
   }
+
+  #statusBar {
+    padding:2px 8px;
+    background:#f5f7fa;
+    border-top:1px solid #ddd;
+    font-size:12px;
+  }
+
+  .tabulator-frozen { background:#f0f8ff; }
+  .tabulator-frozen-left { box-shadow:1px 0 0 #d7d7d7; }
+  .tabulator-frozen-right { box-shadow:-1px 0 0 #d7d7d7; }
+
+  .custom-context-menu { border-radius:4px; }
+
+  /* 分页区域字体 */
+  #pager .tabulator-paginator label,
+  #pager .tabulator-page-size { font-size:12px; }
+  #pager .tabulator-page { font-size:12px; }
+  .tabulator-footer { font-size:12px; }
 </style>
 {% end %}

@@ -4,6 +4,7 @@
 import os.path
 import random
 import sys
+import json
 from instock.lib.singleton_type import singleton_type
 from loguru import logger
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,6 +14,7 @@ cpath_current = os.path.dirname(os.path.dirname(__file__))
 cpath = os.path.abspath(os.path.join(cpath_current, os.pardir))
 sys.path.append(cpath)
 proxy_filename = os.path.join(cpath_current, 'config', 'proxy.txt')
+api_config_filename = os.path.join(cpath_current, 'config', 'api_config.json')
 
 __author__ = 'myh '
 __date__ = '2025/1/6 '
@@ -46,7 +48,8 @@ class proxys(metaclass=singleton_type):
             if not self.data:
                 logger.error("补充代理后仍无可用代理")
     def __init__(self):
-        self.api_url_base = 'http://api2.uuhttp.com:39003/index/api/return_data?mode=http&connect_type=account&show_up=1&b_time=450&return_type=1&line_break=1&balance=0&secert=MTM4MTEyNzU3Mzc6Mzg2YWQ0ZjY3MzZkNjQxZDE0M2E2MGM1ZmU2Zjk5ZDQ%3D'
+        # 从配置文件加载API配置
+        self.api_config = self._load_api_config()
         self.test_url = 'http://myip.ipip.net'
         self.proxy_filename = proxy_filename
         self.pool_size = 20
@@ -58,9 +61,42 @@ class proxys(metaclass=singleton_type):
         # 再补充代理池
         self.ensure_pool()
 
+    def _load_api_config(self):
+        """从配置文件加载API配置"""
+        try:
+            if os.path.exists(api_config_filename):
+                with open(api_config_filename, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                logger.error(f"API配置文件不存在: {api_config_filename}")
+                return None
+        except Exception as e:
+            logger.error(f"加载API配置文件失败: {e}")
+            return None
+
+    def _build_api_url(self, count):
+        """构建API URL"""
+        if not self.api_config or 'proxy_api' not in self.api_config:
+            logger.error("API配置不存在或格式错误")
+            return None
+            
+        proxy_api = self.api_config['proxy_api']
+        base_url = proxy_api.get('url_base')
+        params = proxy_api.get('params', {})
+        
+        # 构建URL参数
+        param_str = '&'.join([f"{k}={v}" for k, v in params.items()])
+        
+        # 添加count参数
+        return f"{base_url}?{param_str}&count={count}"
+
     def fetch_and_save_proxies(self, count, append=False):
         import requests
-        api_url = f'{self.api_url_base}&count={count}'
+        api_url = self._build_api_url(count)
+        if not api_url:
+            logger.error("无法构建API URL，请检查配置文件")
+            return
+            
         try:
             resp = requests.get(api_url, timeout=10)
             if resp.status_code == 200:
@@ -134,7 +170,6 @@ class proxys(metaclass=singleton_type):
             'https': f'http://{user}:{password}@{ip}:{port}'
         }
         return proxy
-
 """
     def get_proxies(self):
         if self.data is None:

@@ -159,3 +159,5 @@ cython_debug/
 
 gf_client.json
 
+api_config.json
+proxy.txt
