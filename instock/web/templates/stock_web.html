@@ -104,11 +104,13 @@
     const val = cell.getValue();
     if (!isPureNumeric(val)) return val ?? '';
     const num = parseFloat(val);
-    const pct = Math.abs(num) > 1 ? num : num * 100;
+    //get col name
+    const field = cell.getColumn().getField();
+    const needpercent = field.toLowerCase().includes('rate')
     let decimal = 2;
-    if (Math.abs(pct) < 0.1) decimal = 3;
-    else if (Math.abs(pct) >= 100) decimal = 1;
-    const txt = pct.toFixed(decimal) + '%';
+    if (Math.abs(num) < 0.1) decimal = 3;
+    else if (Math.abs(num) >= 100) decimal = 1;
+    const txt = num.toFixed(decimal) + '%';
     const color = num > 0 ? 'color:red;' : (num < 0 ? 'color:green;' : '');
     return `<span style="${color}">${txt}</span>`;
   }

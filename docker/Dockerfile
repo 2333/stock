@@ -1,8 +1,7 @@
 # 基础镜像
 # https://hub.docker.com/_/python/tags?page=1&name=3.11-slim-bullseye
-FROM docker.io/python:3.11-slim-bullseye
+FROM library/python:3.11-slim-bullseye
 
-MAINTAINER myh
 #增加语言utf-8
 ENV LANG=zh_CN.UTF-8
 ENV LC_CTYPE=zh_CN.UTF-8
@@ -42,6 +41,9 @@ trusted-host = mirrors.aliyun.com" > /etc/pip.conf && \
     pip install tornado && \
     pip install mini-racer && \
     pip install easytrader && \
+    pip install pyarrow && \
+    pip install cacheTools && \
+    pip install loguru && \
     mkdir ta-lib && \
     curl -SL $(curl -s https://api.github.com/repos/ta-lib/ta-lib/releases/latest | grep browser_download_url | cut -d'"' -f4 |grep -E 'tar.gz$') | tar -xz --strip-components=1 -C ./ta-lib && \
     cd ta-lib/ && \

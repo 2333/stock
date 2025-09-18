@@ -272,6 +272,13 @@ macOS Homebrew
 Linux Debian packages
 ```
 
+MacOS使用brew安装ta-lib后，pip安装如果报错，则先做如下配置再重试
+
+```
+export TA_INCLUDE_PATH="$(brew --prefix ta-lib)/include"
+export TA_LIBRARY_PATH="$(brew --prefix ta-lib)/lib"
+```
+
 ### 4.安装依赖库
 
 依赖库都是目前最新版本。
